@@ -1,1 +1,4 @@
 .venv/
+SampleData/
+Results/*/*/plans/
+.idea/

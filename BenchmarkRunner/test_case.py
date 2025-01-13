@@ -8,19 +8,23 @@ from dataclasses import dataclass, field
 from enum import Enum
 import re
 import json
-import logging
+from natsort import natsorted
 
+from definitions import *
 from optimizer import *
+from logging_config import setup_logging
+import logging
 import motherduck
 
-MD_PREFIX = "md:"
-QUERY_ROOT = "/home/ubuntu/Analysis/Data/permuted_queries"
-INDEX_ROOT = "/home/ubuntu/Analysis/Indexes"
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 class QueryRunStatus(Enum):
     FAILED = 0
     SUCCESS = 1
+
 
 class stopwatch:
     def __enter__(self):
@@ -34,14 +38,29 @@ class stopwatch:
 
 @dataclass
 class QueryResult:
-    message: str
     # benchmark: str
-    query_id: str
+    # query_id: str
     variation_id: int
     # optimizer: Optimizer
     # start_time: float
     duration: float
     status: QueryRunStatus
+    message: str
+
+    def to_dict(self):
+        return {
+            # "benchmark": self.benchmark,
+            # "query_id": self.query_id,
+            "variation_id": self.variation_id,
+            # "optimizer": self.optimizer,
+            # "start_time": self.start_time,
+            "duration": self.duration,
+            "status": self.status.name,
+            "message": self.message,
+        }
+
+    def to_json(self):
+        return json.dumps(self.to_dict())
 
 
 @dataclass
@@ -62,13 +81,14 @@ class QueryVariation:
                 if self.raise_on_error:
                     raise e
                 query_status = QueryRunStatus.FAILED
-                error_message = str(e) 
-        
-        logging.INFO(f"Execution of [{self.query_id}][{self.variation_id}] took {sw.time} seconds [{query_status.name}].")
+                error_message = str(e)
+
+        logger.info(
+            f"Execution of [{self.query_id}][{self.variation_id}] took {sw.time:.6f} seconds [{query_status.name}].")
         return QueryResult(
             message=error_message,
             # benchmark=self.benchmark,
-            query_id=self.query_id,
+            # query_id=self.query_id,
             variation_id=self.variation_id,
             # optimizer=None,
             # start_time=datetime.datetime.fromtimestamp(
@@ -78,34 +98,57 @@ class QueryVariation:
             status=query_status,
         )
 
+    def run_explain(self, conn: DuckDBPyConnection):
+        query_status = QueryRunStatus.SUCCESS
+        with stopwatch() as sw:
+            try:
+                explain_result = conn.execute(self.query_text).fetchone()[1]
+            except Exception as e:
+                if self.raise_on_error:
+                    raise e
+                query_status = QueryRunStatus.FAILED
+                error_message = str(e)
+
+        logger.info(
+            f"Explain of [{self.query_id}][{self.variation_id}] took {sw.time:.6f} seconds [{query_status.name}].")
+
+        return explain_result
+
     @classmethod
     def from_query_info(
-        cls,
-        # benchmark: str,
-        query_id: str,
-        variation_id: int
+            cls,
+            explain: bool,
+            benchmark: str,
+            query_id: str,
+            variation_id: int
     ):
-        """ eg. /tpch/queries/q01/1.sql """
-        path = os.path.join(QUERY_ROOT, benchmark, "queries", query_id, str(variation_id) + ".sql") 
+        """ eg. /tpch/queries/q07/1.sql """
+        path = os.path.join(QUERY_ROOT, benchmark, "queries", query_id, str(variation_id) + ".sql")
+        query_text = open(path).read()
+        if explain:
+            query_text = f"""
+            EXPLAIN (FORMAT json) {query_text}
+            """
         return cls(
             # benchmark=benchmark,
             query_id=query_id,
             variation_id=variation_id,
-            query_text=open(path).read()
+            query_text=query_text
         )
 
     @classmethod
     def from_file(
-        cls,
-        path: str
+            cls,
+            explain: bool,
+            path: str
     ):
-        """ eg. /tpch/queries/q01/1.sql """
+        """ eg. /tpch/queries/q07/1.sql """
         pattern = r"([^/]+)/([^/]+)/([^/.]+)\.sql$"
         match = re.search(pattern, path)
         return cls(
             # benchmark=match.group(1),
             query_id=match.group(2),
-            variation_id=match.group(3),
+            variation_id=int(match.group(3)),
             query_text=open(path).read()
         )
 
@@ -113,23 +156,33 @@ class QueryVariation:
 @dataclass
 class TestCase:
     benchmark: str
-    explain: bool
     path: str = field(init=False)
     raise_on_error: Optional[bool] = False
 
     def __post_init__(self):
         self.path: str = os.path.join(QUERY_ROOT,
                                       self.benchmark,
-                                      "explain" if self.explain else "queries")
+                                      "queries")
 
     '''
     returns a list of QueryVariations for a given query_id
     '''
-    def _collect_variations_of_query(self, query_id) -> List[QueryVariation]:
-        ''' returns a list of variation ids '''
+
+    def _collect_variations_from_file(self, optimizer) -> Dict[str, List[int]]:
+        index_file = os.path.join(INDEX_ROOT,
+                                  self.benchmark,
+                                  optimizer.to_string() + ".json")
+
+        with open(index_file) as f:
+            data = json.load(f)
+            return data
+
+    def _collect_variations_of_query(self, query_id) -> Dict[str, List[int]]:
+        """ returns a list of variation ids """
+
         def _expand_dir(path) -> List[int]:
             if path.endswith(".sql"):
-                return [(None, path)]
+                return []
             elif os.path.isdir(path):
                 return [
                     int(file_name.strip(".sql"))
@@ -138,49 +191,84 @@ class TestCase:
                 ]
             else:  # not valid sql file or path
                 raise ValueError(f"{path} is not a valid directory or .sql file")
-        
-        all_queries: List[QueryVariation] = [
-            QueryVariation.from_query_info(self.benchmark, query_id, variation_id)
-            for variation_id in _expand_dir(os.path.join(self.path, query_id))
+
+        all_queries: List[int] = [
+            # QueryVariation.from_query_info(self.benchmark, query_id, variation_id)
+            variation_id
+            for variation_id in sorted(_expand_dir(os.path.join(self.path, query_id)))
         ]
 
-        return all_queries
+        return {query_id: all_queries}
 
-    
-    def run(self, optimizer: Optimizer):
-        all_results: List[QueryResult] = []
+    def run(self, optimizer: Optimizer, explain: bool = False):
+
 
         try:
-            self._run(all_results)
-        # ruff: noqa: E722
+            if explain:
+                self._run_explains(optimizer)
+            else:
+                all_results: Dict[str, List[QueryResult]] = {}
+                self._run(optimizer, all_results)
+                self.save_timed_results_as_json(optimizer, all_results)
         except Exception as e:
             if self.raise_on_error:
                 raise e
-            all_results.append(
-                QueryResult(
-                    message="Error loading test case",
-                    # benchmark=self.benchmark,
-                    # query_id=None,
-                    # variation_id=None,
-                    # optimizer=optimizer,
-                    # start_time=datetime.datetime.now(datetime.timezone.utc),
-                    duration=float(0),
-                    status=QueryRunStatus.FAILED
-                )
-            )
-        return all_results
-            
-    def _run(self, all_results: List[QueryResult]):
+
+    def _run_explains(self, optimizer: Optimizer):
         conn = motherduck.connect(MD_PREFIX)
-        motherduck.attach(conn, "~/local_v113.db", "local")
+        motherduck.attach(conn, "~/local_v112.db", "local")
 
-        query_ids = [file_name for file_name in os.listdir(self.path)]
-        for query_id in ['q01']:
-            print(query_id)
-            all_variations = self._collect_variations_of_query(query_id)
-            with stopwatch() as sw:
-                for variation in all_variations:
-                    result = variation.run(conn)
-                    all_results.append(result)
+        query_ids = natsorted([file_name for file_name in os.listdir(self.path)])
 
+        for query_id in query_ids:
+            logger.info(f"Running query: {query_id}")
 
+            plans_folder = os.path.join(RESULT_ROOT, self.benchmark, optimizer.to_string(), "plans", query_id)
+            if not os.path.exists(plans_folder):
+                os.makedirs(plans_folder)
+            variations = self._collect_variations_of_query(query_id)
+            for variation_id in variations[query_id]:
+                variation = QueryVariation.from_query_info(
+                    True, self.benchmark, query_id, variation_id
+                )
+                explain_result = variation.run_explain(conn)
+                explain_path = os.path.join(str(plans_folder), str(variation_id) + ".json")
+                with open(explain_path, "w") as f:
+                    json.dump(json.loads(explain_result), f, indent=4)
+        conn.close()
+
+    def _run(self, optimizer: Optimizer, all_results: Dict[str, List[QueryResult]]):
+        conn = motherduck.connect(MD_PREFIX)
+        motherduck.attach(conn, "~/local_v112.db", "local")
+
+        query_ids = natsorted([file_name for file_name in os.listdir(self.path)])
+
+        variations = self._collect_variations_from_file(optimizer)
+
+        results_for_query = []
+        for query_id in query_ids:
+            logger.info(f"Running query: {query_id}")
+
+            for variation_id in variations[query_id]:
+                variation = QueryVariation.from_query_info(
+                    False, self.benchmark, query_id, variation_id
+                )
+                result = variation.run(conn)
+                results_for_query.append(result)
+
+            all_results[query_id] = results_for_query
+
+        conn.close()
+
+    def save_timed_results_as_json(self, optimizer: Optimizer, all_results: Dict[str, List[QueryResult]]):
+        results_folder = os.path.join(RESULT_ROOT,
+                                      self.benchmark,
+                                      optimizer.to_string(),
+                                      )
+        if not os.path.exists(results_folder):
+            os.makedirs(results_folder)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        result_path = os.path.join(str(results_folder), timestamp + ".json")
+
+        with open(result_path, "w") as f:
+            json.dump(all_results, f, default=lambda o: o.to_dict(), indent=4)
