@@ -7,12 +7,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 import re
+import json
+import logging
 
 from optimizer import *
 import motherduck
 
 MD_PREFIX = "md:"
 QUERY_ROOT = "/home/ubuntu/Analysis/Data/permuted_queries"
+INDEX_ROOT = "/home/ubuntu/Analysis/Indexes"
 
 
 class QueryRunStatus(Enum):
@@ -32,7 +35,7 @@ class stopwatch:
 @dataclass
 class QueryResult:
     message: str
-    benchmark: str
+    # benchmark: str
     query_id: str
     variation_id: int
     # optimizer: Optimizer
@@ -43,7 +46,7 @@ class QueryResult:
 
 @dataclass
 class QueryVariation:
-    benchmark: str
+    # benchmark: str
     query_id: str
     variation_id: int
     query_text: str
@@ -61,9 +64,10 @@ class QueryVariation:
                 query_status = QueryRunStatus.FAILED
                 error_message = str(e) 
         
+        logging.INFO(f"Execution of [{self.query_id}][{self.variation_id}] took {sw.time} seconds [{query_status.name}].")
         return QueryResult(
             message=error_message,
-            benchmark=self.benchmark,
+            # benchmark=self.benchmark,
             query_id=self.query_id,
             variation_id=self.variation_id,
             # optimizer=None,
@@ -77,14 +81,14 @@ class QueryVariation:
     @classmethod
     def from_query_info(
         cls,
-        benchmark: str,
+        # benchmark: str,
         query_id: str,
         variation_id: int
     ):
-        ''' ..../tpch/queries/q01/1.sql '''
+        """ eg. /tpch/queries/q01/1.sql """
         path = os.path.join(QUERY_ROOT, benchmark, "queries", query_id, str(variation_id) + ".sql") 
         return cls(
-            benchmark=benchmark,
+            # benchmark=benchmark,
             query_id=query_id,
             variation_id=variation_id,
             query_text=open(path).read()
@@ -95,11 +99,11 @@ class QueryVariation:
         cls,
         path: str
     ):
-        ''' ..../tpch/queries/q01/1.sql '''
+        """ eg. /tpch/queries/q01/1.sql """
         pattern = r"([^/]+)/([^/]+)/([^/.]+)\.sql$"
         match = re.search(pattern, path)
         return cls(
-            benchmark=match.group(1),
+            # benchmark=match.group(1),
             query_id=match.group(2),
             variation_id=match.group(3),
             query_text=open(path).read()
@@ -159,7 +163,7 @@ class TestCase:
                     # query_id=None,
                     # variation_id=None,
                     # optimizer=optimizer,
-                    start_time=datetime.datetime.now(datetime.timezone.utc),
+                    # start_time=datetime.datetime.now(datetime.timezone.utc),
                     duration=float(0),
                     status=QueryRunStatus.FAILED
                 )

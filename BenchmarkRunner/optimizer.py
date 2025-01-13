@@ -17,3 +17,10 @@ class Optimizer:
     type: OptimizerType
     estimation_function: Optional[EstimationFunction] = None
 
+    def to_string(self):
+        if self.type == OptimizerType.HEURISTIC:
+            return self.type.name
+        
+        assert (self.estimation_function)
+
+        return self.estimation_function.name
