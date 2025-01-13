@@ -21,6 +21,7 @@ def get_config_from_env():
 
 def connect(connection_string=None, additional_config={}):
     config = get_config_from_env() | additional_config
+    logger.info(f"Connecting to {connection_string} with config {config}")
     try:
         return duckdb.connect(connection_string, config=config)
     except Exception as e:

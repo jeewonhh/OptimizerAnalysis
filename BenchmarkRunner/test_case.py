@@ -100,17 +100,16 @@ class QueryVariation:
 
     def run_explain(self, conn: DuckDBPyConnection):
         query_status = QueryRunStatus.SUCCESS
-        with stopwatch() as sw:
-            try:
-                explain_result = conn.execute(self.query_text).fetchone()[1]
-            except Exception as e:
-                if self.raise_on_error:
-                    raise e
-                query_status = QueryRunStatus.FAILED
-                error_message = str(e)
+        try:
+            explain_result = conn.execute(self.query_text).fetchone()[1]
+        except Exception as e:
+            if self.raise_on_error:
+                raise e
+            query_status = QueryRunStatus.FAILED
+            error_message = str(e)
 
         logger.info(
-            f"Explain of [{self.query_id}][{self.variation_id}] took {sw.time:.6f} seconds [{query_status.name}].")
+            f"Explain of [{self.query_id}][{self.variation_id}] [{query_status.name}].")
 
         return explain_result
 
@@ -164,6 +163,10 @@ class TestCase:
                                       self.benchmark,
                                       "queries")
 
+    @classmethod
+    def from_name(cls, benchmark: str):
+        return cls(benchmark)
+
     '''
     returns a list of QueryVariations for a given query_id
     '''
@@ -201,8 +204,6 @@ class TestCase:
         return {query_id: all_queries}
 
     def run(self, optimizer: Optimizer, explain: bool = False):
-
-
         try:
             if explain:
                 self._run_explains(optimizer)
@@ -219,20 +220,27 @@ class TestCase:
         motherduck.attach(conn, "~/local_v112.db", "local")
 
         query_ids = natsorted([file_name for file_name in os.listdir(self.path)])
+        plans_folder = os.path.join(RESULT_ROOT, self.benchmark, optimizer.to_string(), "plans")
 
         for query_id in query_ids:
-            logger.info(f"Running query: {query_id}")
+            logger.info(f"======= Explaining query: {query_id} =======")
 
-            plans_folder = os.path.join(RESULT_ROOT, self.benchmark, optimizer.to_string(), "plans", query_id)
-            if not os.path.exists(plans_folder):
-                os.makedirs(plans_folder)
+            #  create folder for query_id if it does not exist
+            if not os.path.exists(plans_folder + "/" + query_id):
+                os.makedirs(plans_folder + "/" + query_id)
+
+            # explain all variations of query_id
             variations = self._collect_variations_of_query(query_id)
             for variation_id in variations[query_id]:
+                if os.path.exists(os.path.join(str(plans_folder), query_id, str(variation_id) + ".json")):
+                    # skip if plan file already exists
+                    logger.info(f"Skipping [{query_id}][{variation_id}]")
+                    continue
                 variation = QueryVariation.from_query_info(
                     True, self.benchmark, query_id, variation_id
                 )
                 explain_result = variation.run_explain(conn)
-                explain_path = os.path.join(str(plans_folder), str(variation_id) + ".json")
+                explain_path = os.path.join(str(plans_folder), query_id, str(variation_id) + ".json")
                 with open(explain_path, "w") as f:
                     json.dump(json.loads(explain_result), f, indent=4)
         conn.close()
@@ -245,10 +253,9 @@ class TestCase:
 
         variations = self._collect_variations_from_file(optimizer)
 
-        results_for_query = []
         for query_id in query_ids:
-            logger.info(f"Running query: {query_id}")
-
+            logger.info(f"======= Executing query: {query_id} =======")
+            results_for_query = []
             for variation_id in variations[query_id]:
                 variation = QueryVariation.from_query_info(
                     False, self.benchmark, query_id, variation_id

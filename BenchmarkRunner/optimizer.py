@@ -27,3 +27,31 @@ class Optimizer:
         assert self.estimation_function
 
         return self.estimation_function.name
+
+    @classmethod
+    def from_name(cls, optimizer: str):
+        if optimizer.lower() == "og":
+            return Optimizer(
+                type=OptimizerType.HEURISTIC
+            )
+        elif optimizer.lower() == "cd":
+            return Optimizer(
+                type=OptimizerType.DP,
+                estimation_function=EstimationFunction.CARDINALITY
+            )
+        elif optimizer.lower() == "ts":
+            return Optimizer(
+                type=OptimizerType.DP,
+                estimation_function=EstimationFunction.TABLE_SIZE
+            )
+        elif optimizer.lower() == "ds":
+            return Optimizer(
+                type=OptimizerType.DP,
+                estimation_function=EstimationFunction.DATA_SIZE
+            )
+        elif optimizer.lower() == "ds_simplified":
+            return Optimizer(
+                type=OptimizerType.DP,
+                estimation_function=EstimationFunction.DATA_SIZE_SIMPLIFIED
+            )
+        return None
