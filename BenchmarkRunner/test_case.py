@@ -165,7 +165,10 @@ class TestCase:
 
     @classmethod
     def from_name(cls, benchmark: str):
-        return cls(benchmark)
+        return cls(
+            benchmark=benchmark,
+            raise_on_error=True,
+        )
 
     '''
     returns a list of QueryVariations for a given query_id
@@ -243,6 +246,7 @@ class TestCase:
                 explain_path = os.path.join(str(plans_folder), query_id, str(variation_id) + ".json")
                 with open(explain_path, "w") as f:
                     json.dump(json.loads(explain_result), f, indent=4)
+        motherduck.detach(conn, "local")
         conn.close()
 
     def _run(self, optimizer: Optimizer, all_results: Dict[str, List[QueryResult]]):

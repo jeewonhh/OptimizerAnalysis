@@ -50,14 +50,7 @@ BRIDGE_COST = 10_000
 
 
 def run_test_case(optimizer: str, test_case: str, explain: bool = False):
-    if test_case.lower() == "tpch":
-        test_case = TPCH
-    elif test_case.lower() == "tpcds":
-        test_case = TPCDS
-    elif test_case.lower() == "job":
-        test_case = JOB
-
-    _run_test_case(optimizer, test_case, explain)
+    _run_test_case(Optimizer.from_name(optimizer), TestCase.from_name(test_case), explain)
 
 
 def _run_test_case(optimizer: Optimizer, test_case: TestCase, explain: bool = False):
@@ -67,6 +60,7 @@ def _run_test_case(optimizer: Optimizer, test_case: TestCase, explain: bool = Fa
     os.environ["BRIDGE_COST"] = str(BRIDGE_COST)
 
     logger.info(f"Starting Test Case [{test_case.benchmark}] with Optimizer [{optimizer.to_string()}]")
+
     test_case.run(optimizer, explain=explain)
 
 
@@ -107,7 +101,7 @@ def identify_differentiating_queries(optimizer: Optimizer, baseline_optimizer: O
 
     index_folder = os.path.join(INDEX_ROOT, test_case.benchmark)
     if not os.path.exists(index_folder):
-        os.mkdir(index_folder)
+        os.makedirs(index_folder)
 
     with open(os.path.join(str(index_folder), optimizer.to_string() + ".json"), 'w') as f:
         json.dump(differentiating_queries, f, indent=4)
@@ -143,18 +137,30 @@ def _union_of_differentiating_queries(test_case: TestCase):
     return union
 
 
-def end_to_end_explain_run(test_case: TestCase):
+def end_to_end_explain_run(test_case: str):
+    _end_to_end_explain_run(TestCase.from_name(test_case))
+
+
+def _end_to_end_explain_run(test_case: TestCase):
     for optimizer in OPTIMIZERS:
-        with stopwatch() as sw:
-            _run_test_case(optimizer, test_case, explain=True)
+        _run_test_case(optimizer, test_case, explain=True)
 
     for optimizer in OPTIMIZERS:
         if optimizer == OG:
             continue
         identify_differentiating_queries(optimizer=optimizer, baseline_optimizer=OG, test_case=test_case)
 
-    union_of_differentiating_queries(test_case)
+    _union_of_differentiating_queries(test_case)
 
     for optimizer in OPTIMIZERS:
         assert os.path.exists(os.path.join(INDEX_ROOT, test_case.benchmark, optimizer.to_string() + ".json"))
+        _run_test_case(optimizer, test_case, explain=False)
+
+
+def end_to_end_run(test_case: str):
+    _end_to_end_run(TestCase.from_name(test_case))
+
+
+def _end_to_end_run(test_case: TestCase):
+    for optimizer in OPTIMIZERS:
         _run_test_case(optimizer, test_case, explain=False)
