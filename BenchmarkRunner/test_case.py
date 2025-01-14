@@ -275,6 +275,7 @@ class TestCase:
         results_folder = os.path.join(RESULT_ROOT,
                                       self.benchmark,
                                       optimizer.to_string(),
+                                      "timed_results"
                                       )
         if not os.path.exists(results_folder):
             os.makedirs(results_folder)

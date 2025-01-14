@@ -1,5 +1,3 @@
-from time import sleep
-
 import duckdb
 
 import os
@@ -8,6 +6,7 @@ from typing import overload
 from pathlib import Path
 
 from test_case import *
+from db_saver import save_timed_results_in_md
 
 BENCHMARKS = [
     TPCH := TestCase(
@@ -59,9 +58,9 @@ def _run_test_case(optimizer: Optimizer, test_case: TestCase, explain: bool = Fa
         os.environ["ESTIMATION"] = optimizer.estimation_function.name
     os.environ["BRIDGE_COST"] = str(BRIDGE_COST)
 
-    logger.info("="*80 +
+    logger.info("=" * 80 +
                 f"\n      Starting Test Case [{test_case.benchmark}] with Optimizer [{optimizer.to_string()}]\n      " +
-                "="*80)
+                "=" * 80)
 
     test_case.run(optimizer, explain=explain)
 
@@ -173,3 +172,8 @@ def _end_to_end_run(test_case: TestCase):
 
     for optimizer in OPTIMIZERS:
         _run_test_case(optimizer, test_case, explain=False)
+        save_timed_results_in_md(optimizer, test_case)
+
+
+# union_of_differentiating_queries("tpch")
+end_to_end_run("tpch")
