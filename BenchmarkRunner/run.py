@@ -59,7 +59,9 @@ def _run_test_case(optimizer: Optimizer, test_case: TestCase, explain: bool = Fa
         os.environ["ESTIMATION"] = optimizer.estimation_function.name
     os.environ["BRIDGE_COST"] = str(BRIDGE_COST)
 
-    logger.info(f"Starting Test Case [{test_case.benchmark}] with Optimizer [{optimizer.to_string()}]")
+    logger.info("="*80 +
+                f"\n      Starting Test Case [{test_case.benchmark}] with Optimizer [{optimizer.to_string()}]\n      " +
+                "="*80)
 
     test_case.run(optimizer, explain=explain)
 
@@ -162,5 +164,12 @@ def end_to_end_run(test_case: str):
 
 
 def _end_to_end_run(test_case: TestCase):
+    for optimizer in OPTIMIZERS:
+        if optimizer == OG:
+            continue
+        identify_differentiating_queries(optimizer=optimizer, baseline_optimizer=OG, test_case=test_case)
+
+    _union_of_differentiating_queries(test_case)
+
     for optimizer in OPTIMIZERS:
         _run_test_case(optimizer, test_case, explain=False)

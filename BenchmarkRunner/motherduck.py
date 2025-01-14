@@ -37,4 +37,4 @@ def attach(conn: DuckDBPyConnection, path: str, alias: str):
 def detach(conn: DuckDBPyConnection, path: str):
     logger.info(f"Detaching {path}")
     path = path.strip()
-    conn.sql("DETACH '" + path)
+    conn.sql("DETACH " + path)
